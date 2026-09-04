@@ -244,7 +244,9 @@
   // 公网/任意域名访问时，前端与后端同源（页面由 server 自身托管），用相对地址即可；
   // 仅当以 file:// 直接双击打开 html（无后端同源）时，才回退到本机 3000。
   const API = (location.protocol === 'file:') ? 'http://127.0.0.1:3000' : '';
-  let API_TOKEN = (sessionStorage.getItem('adb_token') || ''); // 后端启用 ADB_CONSOLE_TOKEN 时由用户输入
+  // 支持通过 URL ?token=xxx 直接带入令牌（避免手动复制 64 位令牌时折行/截断出错）；URL 优先于 sessionStorage
+  let API_TOKEN = (new URLSearchParams(location.search).get('token') || sessionStorage.getItem('adb_token') || '').trim();
+  if (API_TOKEN) { try { sessionStorage.setItem('adb_token', API_TOKEN); } catch (e) {} }
   function apiFetch(url, opts) {
     opts = opts || {};
     if (API_TOKEN) { opts.headers = Object.assign({}, opts.headers, { 'Authorization': 'Bearer ' + API_TOKEN }); }
