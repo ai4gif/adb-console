@@ -241,7 +241,9 @@
   "use strict";
   const $ = s => document.querySelector(s);
   // 后端基地址：若本页就托管在 127.0.0.1:3000 则走相对路径；否则（预览面板/双击 html 等异源场景）显式指向后端
-  const API = (location.hostname === '127.0.0.1' && location.port === '3000') ? '' : 'http://127.0.0.1:3000';
+  // 公网/任意域名访问时，前端与后端同源（页面由 server 自身托管），用相对地址即可；
+  // 仅当以 file:// 直接双击打开 html（无后端同源）时，才回退到本机 3000。
+  const API = (location.protocol === 'file:') ? 'http://127.0.0.1:3000' : '';
   let API_TOKEN = (sessionStorage.getItem('adb_token') || ''); // 后端启用 ADB_CONSOLE_TOKEN 时由用户输入
   function apiFetch(url, opts) {
     opts = opts || {};
