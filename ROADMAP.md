@@ -40,7 +40,19 @@ RELAY_URL=http://127.0.0.1:4100 AGENT_TOKEN=dev-agent-token node agent.js
 - agent 连 relay 需 `AGENT_TOKEN`，防止他人 agent 接走你的指令。
 - 公网部署时建议为浏览器访问开启 `ADB_CONSOLE_TOKEN`。
 
-## Stage 1（待做）
-- agent 用 Electron 打包 Win(`.exe`) / macOS(`.dmg`) 双版本，内置 `adb` 二进制；macOS 不签名、靠用户手动信任。
-- relay 部署到云服务器 + 固定域名 + HTTPS（Cloudflare named tunnel 或自有域名反代）。
+## Stage 1（进行中）
+### 1.0 macOS 桌面 agent（已完成）
+- `desktop/` 工程（Electron + electron-builder）：`src/main.js`（托盘 + 配置窗口 + 调 `startAgent`，关窗=最小化托盘）、`preload.js`、`renderer.html/js`（填 relay 地址 + token、显示连接状态）、`scripts/sync.js`（同步仓库根 `adb-core.js`/`agent-lib.js` 与系统 `adb` 二进制，单一来源）、`scripts/make_icon.py`、`README.md`。
+- 构建：`npm run dist:mac` → `dist/ADB Console Agent-0.1.0-mac.zip`（约 94MB，未签名，符合「不签名靠手动信任」）。
+  - 注：本机打包环境下 `hdiutil` 挂载 `/Volumes` 被沙箱拦截，故 mac 目标用 `zip` 而非 `dmg`；要在自己 Mac 上出 `.dmg` 直接 `npm run dist:mac` 即可。
+- 运行：双击 zip 解压 → 拖入「应用程序」→ 首次若提示「无法验证开发者」：系统设置→隐私与安全性→仍要打开（或 `sudo xattr -cr /Applications/ADB\ Console\ Agent.app`）→ 填 relay 地址 + token → 连接。
+- 内置 `adb` 二进制在 `Contents/Resources/adb/adb`；共享逻辑在 `Contents/Resources/app.asar`。
+
+### 1.1 Windows 桌面 agent（待做）
+- 同工程 `npm run dist:win` → `.exe`（NSIS）；需在 `resources/adb` 放 Windows 版 `adb.exe` + `AdbWinApi.dll` + `AdbWinUsbApi.dll`；建议代码签名证书规避 SmartScreen。
+
+### 1.2 relay 云部署（待做）
+- 把 `relay.js` 部署到云服务器 + 固定域名 + HTTPS（Cloudflare named tunnel 或自有域名反代）；`agent.js`/`desktop` 连公网 relay 地址。
+
+### 1.3 后续（待做）
 - 多用户账号系统 + 操作审计、设备自动发现、危险指令在 agent 端也拦截。
