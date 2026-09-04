@@ -1,13 +1,14 @@
 // relay.js — 云端中继（路线 A / 模式 Y）
-// 托管 UI + 浏览器 SSE + 浏览器 API；把指令转发给已连接的本地 agent（反向 SSE），
-// 再把 agent 回传的结果经 SSE 推回浏览器。relay 自身不执行 adb。
+// 托管 UI + 浏览器轮询 + 浏览器 API；把指令放进队列，已连接的本地 agent 轮询取走后在本地执行 adb，
+// 再把结果 POST 回 relay，relay 入事件队列，浏览器轮询取回。relay 自身不执行 adb。
 // 零依赖：仅用 Node 内置模块（http / fs / path / url / child_process）。
+// 注意：经 Cloudflare 快速隧道时，SSE 会被整段缓冲（关连接才 flush），故全链路改用轮询（短 HTTP 请求）。
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const url = require('url');
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 4100;
 const ART = path.join(__dirname, 'artifacts');
 const LOGDIR = path.join(__dirname, 'logs');
 fs.mkdirSync(ART, { recursive: true });
@@ -22,8 +23,11 @@ const AGENT_TOKEN = process.env.AGENT_TOKEN || 'dev-agent-token'; // agent<->rel
 const state = { connected: false, ip: null, logRecording: false, agentOnline: false };
 const results = [];
 let idSeq = 1, runSeq = 1, reqSeq = 1, logRunId = null, activeRunId = null;
-const sseClients = new Set();   // 浏览器 SSE
-let agentRes = null;            // agent 的 SSE 响应（relay→agent 指令通道）
+
+// 浏览器事件队列（轮询拉取）；agent 指令队列（轮询拉取）
+const eventQueue = [];
+const cmdQueue = [];
+let eventSeq = 0, cmdSeq = 0, agentLastSeen = 0;
 const pendingReqs = new Map();  // reqId -> {resolve, timer}  (connect/devices 请求-响应)
 const pendingDone = new Map();  // runId -> {resolve, timer}  (command 流式完成)
 
@@ -43,11 +47,6 @@ function validateIP(v) {
   const port = Number(m[5]);
   if (port < 1 || port > 65535) return { ok: false, msg: '端口需在 1–65535' };
   return { ok: true };
-}
-function sseEvent(type, data) { return 'event: ' + type + '\ndata: ' + JSON.stringify(data) + '\n\n'; }
-function broadcast(obj) {
-  const s = sseEvent(obj.type, obj);
-  sseClients.forEach(r => r.write(s));
 }
 function cmdNameOf(t) { return { log: '打log', install: '安装应用', uninstall: '删除应用', screencap: '截屏', custom: '自定义' }[t] || t; }
 function writeArt(name, buf) { const fp = path.join(ART, name); fs.writeFileSync(fp, buf); return fp; }
@@ -70,6 +69,18 @@ function readRaw(req) {
   return new Promise(res => { const c = []; req.on('data', d => c.push(d)); req.on('end', () => res(Buffer.concat(c))); });
 }
 
+// 浏览器事件入队（轮询消费）
+function pushEvent(obj) {
+  eventSeq++;
+  eventQueue.push({ id: eventSeq, type: obj.type, data: obj });
+  if (eventQueue.length > 5000) eventQueue.shift();
+}
+// agent 指令入队（轮询消费）
+function pushCmd(obj) {
+  cmdSeq++;
+  cmdQueue.push(Object.assign({ id: cmdSeq }, obj));
+}
+
 // agent 回传的 done 构造为最终 record（文件 b64 落盘到 relay）
 function finalizeRecord(body) {
   let output = null;
@@ -86,9 +97,6 @@ function finalizeRecord(body) {
   }
   return makeRec(body.type || 'custom', '已下发', body.feedback || { ok: true, text: 'SUCCESS' }, output, body.params || null);
 }
-
-// 把指令推给 agent（relay→agent SSE）
-function pushAgent(obj) { if (agentRes) { try { agentRes.write(sseEvent('cmd', obj)); return true; } catch (e) { agentRes = null; } } return false; }
 
 // ---------- HTTP ----------
 function json(res, obj, code = 200) { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(obj)); }
@@ -112,24 +120,25 @@ const server = http.createServer(async (req, res) => {
   const provided = (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '') || (u.query.token || '');
   const NEED_AUTH = TOKEN && p !== '/' && p !== '/favicon.ico';
   if (NEED_AUTH && provided !== TOKEN) {
-    if (p === '/api/stream') { res.writeHead(401); return res.end(); }
+    if (p === '/api/events') return json(res, { events: [], state: { ...state }, reset: true });
     return json(res, { ok: false, error: 'unauthorized' }, 401);
   }
 
-  // ===== agent 接入（反向 SSE）=====
-  if (p === '/api/agent/stream' && m === 'GET') {
+  // ===== agent 轮询拉取指令 =====
+  if (p === '/api/agent/poll' && m === 'GET') {
     const at = u.query.agentToken || (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '');
     if (at !== AGENT_TOKEN) { res.writeHead(401); return res.end('unauthorized agent'); }
-    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' });
-    res.write('retry: 3000\n\n');
-    // 若已有 agent 连接，替换
-    if (agentRes) { try { agentRes.end(); } catch (e) {} }
-    agentRes = res;
-    state.agentOnline = true;
-    broadcast({ type: 'status', ...state, ip: state.connected ? state.ip : null });
-    const ka = setInterval(() => { try { res.write(': ka\n\n'); } catch (e) {} }, 25000);
-    req.on('close', () => { clearInterval(ka); if (agentRes === res) { agentRes = null; state.agentOnline = false; broadcast({ type: 'status', ...state, ip: state.connected ? state.ip : null }); } });
-    return;
+    const wasOnline = state.agentOnline;
+    agentLastSeen = Date.now();
+    if (!wasOnline) {
+      state.agentOnline = true;
+      cmdQueue.length = 0;   // 新会话不重放历史指令（避免重连后重复执行截屏/连接等）
+      pushEvent({ type: 'status', ...state, ip: state.connected ? state.ip : null });
+    }
+    const after = parseInt(u.query.after || '0', 10) || 0;
+    const cmds = cmdQueue.filter(c => c.id > after);
+    if (cmdQueue.length > 1000) cmdQueue.splice(0, cmdQueue.length - 1000);
+    return json(res, { commands: cmds, seq: cmdSeq });
   }
 
   // ===== agent 回传结果 =====
@@ -142,12 +151,12 @@ const server = http.createServer(async (req, res) => {
       return json(res, { ok: true });
     }
     if (b.runId) {
-      if (b.kind === 'chunk') broadcast({ type: 'cmd', runId: b.runId, chunk: b.chunk });
-      else if (b.kind === 'logline') broadcast({ type: 'log', line: b.line });
+      if (b.kind === 'chunk') pushEvent({ type: 'cmd', runId: b.runId, chunk: b.chunk });
+      else if (b.kind === 'logline') pushEvent({ type: 'log', line: b.line });
       else if (b.kind === 'done') {
         const rec = finalizeRecord(b);
         addResult(rec);
-        broadcast({ type: 'done', record: toClient(rec) });
+        pushEvent({ type: 'done', record: toClient(rec) });
         if (pendingDone.has(b.runId)) { const d = pendingDone.get(b.runId); pendingDone.delete(b.runId); clearTimeout(d.timer); d.resolve(rec); }
       }
       return json(res, { ok: true });
@@ -155,25 +164,25 @@ const server = http.createServer(async (req, res) => {
     return json(res, { ok: false });
   }
 
-  // ===== 浏览器 SSE =====
-  if (p === '/api/stream' && m === 'GET') {
-    res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'Access-Control-Allow-Origin': '*' });
-    res.write('retry: 2000\n\n');
-    res.write(sseEvent('status', { ...state, ip: state.connected ? state.ip : null }));
-    sseClients.add(res);
-    req.on('close', () => sseClients.delete(res));
-    return;
+  // ===== 浏览器轮询拉取事件 =====
+  if (p === '/api/events' && m === 'GET') {
+    const after = parseInt(u.query.after || '0', 10) || 0;
+    const evs = eventQueue.filter(e => e.id > after);
+    let reset = false;
+    if (after > 0 && eventQueue.length && after < eventQueue[0].id - 1) reset = true; // 客户端落后于缓冲，提示整页刷新
+    return json(res, { events: evs, state: { ...state, ip: state.connected ? state.ip : null }, agentOnline: state.agentOnline, reset });
   }
+
   if (p === '/' && m === 'GET') return sendFile(res, path.join(__dirname, 'index.html'), 'text/html; charset=utf-8');
   if (p === '/favicon.ico') { res.writeHead(204); return res.end(); }
 
   if (m === 'GET' && p === '/api/status') return json(res, { ...state, ip: state.connected ? state.ip : null });
 
   if (m === 'GET' && p === '/api/devices') {
-    if (!agentRes) return json(res, { devices: [], agentOffline: true });
+    if (!state.agentOnline) return json(res, { devices: [], agentOffline: true });
     const reqId = 'r' + (++reqSeq);
     const pr = new Promise(r => { const t = setTimeout(() => { pendingReqs.delete(reqId); r({ devices: [] }); }, 12000); pendingReqs.set(reqId, { resolve: r, timer: t }); });
-    pushAgent({ reqId, action: 'devices' });
+    pushCmd({ reqId, action: 'devices' });
     const r = await pr;
     return json(res, { devices: r.devices || [] });
   }
@@ -183,47 +192,39 @@ const server = http.createServer(async (req, res) => {
     if (b && b.action) appendLog('events.jsonl', JSON.stringify({ t: new Date().toISOString(), action: b.action, detail: b.detail || null, ua: b.ua || null }));
     return json(res, { ok: true });
   }
-  if (m === 'GET' && p === '/api/events') {
-    const n = Math.min(1000, parseInt(u.query.n || '300'));
-    let lines = [];
-    try { lines = fs.readFileSync(path.join(LOGDIR, 'events.jsonl'), 'utf8').trim().split('\n').filter(Boolean); } catch (e) {}
-    const rows = lines.slice(-n).map(l => { try { return JSON.parse(l); } catch (e) { return null; } }).filter(Boolean);
-    return json(res, { rows, total: lines.length });
-  }
-
   if (m === 'POST' && p === '/api/connect') {
     const body = await readJson(req);
     const v = validateIP(body.ip);
     if (!v.ok) return json(res, { ok: false, reason: v.msg });
-    if (!agentRes) return json(res, { ok: false, reason: 'agent 离线，无法连接设备' });
+    if (!state.agentOnline) return json(res, { ok: false, reason: 'agent 离线，无法连接设备' });
     const reqId = 'r' + (++reqSeq);
     const pr = new Promise(r => { const t = setTimeout(() => { pendingReqs.delete(reqId); r({ connected: false, reason: 'agent 无响应（超时）' }); }, 15000); pendingReqs.set(reqId, { resolve: r, timer: t }); });
-    pushAgent({ reqId, action: 'connect', ip: body.ip });
+    pushCmd({ reqId, action: 'connect', ip: body.ip });
     const r = await pr;
     state.connected = r.connected; state.ip = r.connected ? body.ip : null;
-    broadcast({ type: 'status', ...state, ip: state.ip });
+    pushEvent({ type: 'status', ...state, ip: state.ip });
     appendLog('events.jsonl', JSON.stringify({ t: new Date().toISOString(), action: 'relay:connect', detail: { ip: body.ip, ok: r.connected, reason: r.reason } }));
     return json(res, { ok: r.connected, reason: r.reason, hint: r.hint });
   }
 
   if (m === 'POST' && p === '/api/disconnect') {
-    if (state.logRecording) { pushAgent({ runId: logRunId, action: 'command', type: 'log', op: 'stop' }); }
-    if (state.connected && state.ip && agentRes) pushAgent({ action: 'disconnect', ip: state.ip });
+    if (state.logRecording) { pushCmd({ runId: logRunId, action: 'command', type: 'log', op: 'stop' }); }
+    if (state.connected && state.ip && state.agentOnline) pushCmd({ action: 'disconnect', ip: state.ip });
     state.connected = false; state.ip = null; state.logRecording = false;
-    broadcast({ type: 'status', ...state, ip: null });
+    pushEvent({ type: 'status', ...state, ip: null });
     return json(res, { ok: true });
   }
 
   if (m === 'POST' && p === '/api/command/stop') {
     if (!logRunId && !activeRunId) return json(res, { ok: true, stopped: false });
     const rid = activeRunId || logRunId;
-    pushAgent({ runId: rid, action: 'stop' });
+    pushCmd({ runId: rid, action: 'stop' });
     return json(res, { ok: true, stopped: true });
   }
 
   if (m === 'POST' && p === '/api/command') {
     if (!state.connected) return json(res, { ok: false, reason: '设备未连接' });
-    if (!agentRes) return json(res, { ok: false, reason: 'agent 离线，无法执行' });
+    if (!state.agentOnline) return json(res, { ok: false, reason: 'agent 离线，无法执行' });
     const ct = req.headers['content-type'] || '';
     let type, params = {}, fileB64 = null, filePath = null;
     if (ct.includes('application/octet-stream')) {
@@ -242,15 +243,15 @@ const server = http.createServer(async (req, res) => {
     if (type === 'log') {
       if (!state.logRecording) {
         const runId = 'run' + (++runSeq); logRunId = runId; activeRunId = runId; state.logRecording = true;
-        pushAgent({ runId, action: 'command', type: 'log', op: 'start' });
-        broadcast({ type: 'status', ...state, ip: state.ip });
+        pushCmd({ runId, action: 'command', type: 'log', op: 'start' });
+        pushEvent({ type: 'status', ...state, ip: state.ip });
         return json(res, { ok: true, recording: true });
       } else {
         const runId = logRunId;
         const pr = new Promise(r => { const t = setTimeout(() => { pendingDone.delete(runId); r(null); }, 30000); pendingDone.set(runId, { resolve: r, timer: t }); });
-        pushAgent({ runId, action: 'command', type: 'log', op: 'stop' });
+        pushCmd({ runId, action: 'command', type: 'log', op: 'stop' });
         const rec = await pr; state.logRecording = false; activeRunId = null;
-        broadcast({ type: 'status', ...state, ip: state.ip });
+        pushEvent({ type: 'status', ...state, ip: state.ip });
         if (!rec) return json(res, { ok: false, reason: 'log 停止超时' });
         return json(res, { ok: true, record: toClient(rec) });
       }
@@ -261,7 +262,7 @@ const server = http.createServer(async (req, res) => {
 
     const runId = 'run' + (++runSeq); activeRunId = runId;
     const pr = new Promise(r => { const t = setTimeout(() => { pendingDone.delete(runId); r(null); }, 120000); pendingDone.set(runId, { resolve: r, timer: t }); });
-    pushAgent({ runId, action: 'command', type, params, fileB64 });
+    pushCmd({ runId, action: 'command', type, params, fileB64 });
     const rec = await pr; activeRunId = null;
     if (!rec) return json(res, { ok: false, reason: 'agent 执行超时或离线' });
     appendLog('events.jsonl', JSON.stringify({ t: new Date().toISOString(), action: 'relay:command', detail: { type, ok: rec.feedback.ok, text: rec.feedback.text, params } }));
@@ -271,23 +272,23 @@ const server = http.createServer(async (req, res) => {
   const retryMatch = p.match(/^\/api\/command\/(\d+)\/retry$/);
   if (m === 'POST' && retryMatch) {
     if (!state.connected) return json(res, { ok: false, reason: '设备未连接' });
-    if (!agentRes) return json(res, { ok: false, reason: 'agent 离线' });
+    if (!state.agentOnline) return json(res, { ok: false, reason: 'agent 离线' });
     const rec = results.find(r => r.id == retryMatch[1]);
     if (!rec) return json(res, { ok: false, reason: '记录不存在' });
     if (rec.type === 'log') {
       const runId = 'run' + (++runSeq); activeRunId = runId; logRunId = runId; state.logRecording = true;
       const pr = new Promise(r => { const t = setTimeout(() => { pendingDone.delete(runId); r(null); }, 30000); pendingDone.set(runId, { resolve: r, timer: t }); });
-      pushAgent({ runId, action: 'command', type: 'log', op: 'start' });
-      broadcast({ type: 'status', ...state, ip: state.ip });
+      pushCmd({ runId, action: 'command', type: 'log', op: 'start' });
+      pushEvent({ type: 'status', ...state, ip: state.ip });
       const nr = await pr; state.logRecording = false; activeRunId = null;
-      broadcast({ type: 'status', ...state, ip: state.ip });
+      pushEvent({ type: 'status', ...state, ip: state.ip });
       if (!nr) return json(res, { ok: false, reason: 'log 重试超时' });
       addResult(nr, rec.id);
       return json(res, { ok: true, record: toClient(nr) });
     }
     const runId = 'run' + (++runSeq); activeRunId = runId;
     const pr = new Promise(r => { const t = setTimeout(() => { pendingDone.delete(runId); r(null); }, 120000); pendingDone.set(runId, { resolve: r, timer: t }); });
-    pushAgent({ runId, action: 'command', type: rec.type, params: rec.params || {}, retryOf: rec.id });
+    pushCmd({ runId, action: 'command', type: rec.type, params: rec.params || {}, retryOf: rec.id });
     const nr = await pr; activeRunId = null;
     if (!nr) return json(res, { ok: false, reason: 'agent 执行超时' });
     addResult(nr, rec.id);
@@ -332,4 +333,13 @@ const server = http.createServer(async (req, res) => {
   json(res, { error: 'not found' }, 404);
 });
 
-server.listen(PORT, '127.0.0.1', () => console.error('[adb-console relay] listening on http://127.0.0.1:' + PORT + ' (agent token: ' + AGENT_TOKEN + ')'));
+// agent 心跳看门狗：超过 15s 未轮询则标记离线
+setInterval(() => {
+  if (state.agentOnline && agentLastSeen && Date.now() - agentLastSeen > 15000) {
+    state.agentOnline = false;
+    cmdQueue.length = 0;   // 清空待发指令，避免下次重连重放
+    pushEvent({ type: 'status', ...state, ip: state.connected ? state.ip : null });
+  }
+}, 5000);
+
+server.listen(PORT, '127.0.0.1', () => console.error('[adb-console relay] listening on http://127.0.0.1:' + PORT + ' (agent token: ' + AGENT_TOKEN + ', transport: polling)'));
