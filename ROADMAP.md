@@ -8,16 +8,18 @@
 ## 组件
 | 文件 | 角色 | 职责 |
 |---|---|---|
-| `relay.js` | 云端中继 | 托管 UI + 浏览器 SSE + 浏览器 API；把指令转发给已连接的 agent（反向 SSE），把 agent 回传的结果经 SSE 推回浏览器。**自身不执行 adb**。 |
-| `agent.js` | 边缘执行端 | 反向连接 relay；本地执行 `adb` 操控同网设备；回传 stdout 流与截图/日志（base64）。未来打包成 Win / macOS 双版本桌面小程序。 |
+| `relay.js` | 云端中继 | 托管 UI + 浏览器**轮询**（`/api/events`）+ 浏览器 API；把指令放进队列，已连接的 agent **轮询**取走（`/api/agent/poll`）后在本地执行 adb，结果 POST 回 relay 入事件队列，浏览器轮询取回。**自身不执行 adb**。 |
+| `agent.js` | 边缘执行端 | 轮询连接 relay（每 ~1.5s `GET /api/agent/poll`）；本地执行 `adb` 操控同网设备；回传 stdout 流与截图/日志（base64）。已打包成 macOS（桌面小程序），Windows 待做。 |
 | `adb-core.js` | 共享模块 | DANGER 拦截、IP 校验、`adb` spawn / 流式读取；relay 与 agent 共用。 |
 | `server.js` | 单机型（旧） | UI + adb 一体，用于本机直连，保留兼容。 |
-| `index.html` | 浏览器 UI | 连 relay（同源自带 `API=''`），填设备 IP、看结果；与 `server.js` / `relay.js` 同契约。 |
+| `index.html` | 浏览器 UI | 连 relay（同源自带 `API=''`），轮询 `/api/events` 拉实时状态/日志；与 `relay.js` 同契约。 |
 
-## 通信协议
-1. **agent 上线**：`GET /api/agent/stream?agentToken=xxx`（SSE）→ relay 标记 online 并归属。
-2. **指令下行**：浏览器 `POST /api/command` → relay 经 agent SSE 推 `{runId, action:'command', type, params, fileB64}`。
-3. **结果上行**：agent `POST /api/agent/result`（chunk / done / logline）→ relay 经浏览器 SSE 推 `cmd` / `done` / `log` 事件。
+## 通信协议（轮询，非 SSE）
+> 早期版本用 SSE（反向 SSE + 浏览器 SSE）。但公网经 Cloudflare 快速隧道时 SSE 会被**整段缓冲、关闭连接才一次性 flush**，导致 agent 收不到指令、网页收不到实时状态——表现为「连接状态一直闪 / 未连接」。故全链路改为短 HTTP 轮询。
+1. **agent 上线 / 取指令**：`GET /api/agent/poll?agentToken=xxx&after=<id>` → 返回 `id` 之后的指令数组；每次轮询即心跳，relay 标记 online（超过 15s 未轮询看门狗置 offline）。
+2. **指令下行**：浏览器 `POST /api/command` → relay 把 `{runId, action:'command', type, params, fileB64}` 推入指令队列，等 agent 下次轮询取走。
+3. **结果上行**：agent `POST /api/agent/result`（chunk / done / logline）→ relay 入事件队列。
+4. **浏览器拉状态**：`GET /api/events?after=<id>` → 返回 `id` 之后的事件（status / cmd / log / done）+ 当前 state 快照；`after` 落后过多时返回 `reset:true` 提示整页刷新。
 
 ## 本地最小闭环（Stage 0，已验证）
 ```bash
@@ -41,9 +43,9 @@ RELAY_URL=http://127.0.0.1:4100 AGENT_TOKEN=dev-agent-token node agent.js
 - 公网部署时建议为浏览器访问开启 `ADB_CONSOLE_TOKEN`。
 
 ## Stage 1（进行中）
-### 1.0 macOS 桌面 agent（已完成）
+### 1.0 macOS 桌面 agent（已完成，含轮询修复）
 - `desktop/` 工程（Electron + electron-builder）：`src/main.js`（托盘 + 配置窗口 + 调 `startAgent`，关窗=最小化托盘）、`preload.js`、`renderer.html/js`（填 relay 地址 + token、显示连接状态）、`scripts/sync.js`（同步仓库根 `adb-core.js`/`agent-lib.js` 与系统 `adb` 二进制，单一来源）、`scripts/make_icon.py`、`README.md`。
-- 构建：`npm run dist:mac` → `dist/ADB Console Agent-0.1.0-mac.zip`（约 94MB，未签名，符合「不签名靠手动信任」）。
+- **2026-09-04 修复**：relay / agent / 网页三端 SSE 全部改为轮询，解决 Cloudflare 快速隧道下 agent 一直闪、未连接的问题。重新构建：`npm run dist:mac` → `dist/ADB Console Agent-0.1.0-mac.zip`（约 94MB，未签名，符合「不签名靠手动信任」）。
   - 注：本机打包环境下 `hdiutil` 挂载 `/Volumes` 被沙箱拦截，故 mac 目标用 `zip` 而非 `dmg`；要在自己 Mac 上出 `.dmg` 直接 `npm run dist:mac` 即可。
 - 运行：双击 zip 解压 → 拖入「应用程序」→ 首次若提示「无法验证开发者」：系统设置→隐私与安全性→仍要打开（或 `sudo xattr -cr /Applications/ADB\ Console\ Agent.app`）→ 填 relay 地址 + token → 连接。
 - 内置 `adb` 二进制在 `Contents/Resources/adb/adb`；共享逻辑在 `Contents/Resources/app.asar`。
