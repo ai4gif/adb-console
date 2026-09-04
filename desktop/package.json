@@ -1,0 +1,47 @@
+{
+  "name": "adb-console-desktop",
+  "version": "0.1.0",
+  "description": "ADB Console 桌面 agent（路线 A / 模式 Y）：反向连接 relay，本地执行 adb 操控同网设备。macOS 未签名版。",
+  "main": "src/main.js",
+  "author": "LuCiEn",
+  "license": "MIT",
+  "scripts": {
+    "sync": "node scripts/sync.js",
+    "start": "npm run sync && electron .",
+    "dist:mac": "npm run sync && electron-builder --mac --x64",
+    "dist:win": "npm run sync && electron-builder --win --x64",
+    "dist:all": "npm run sync && electron-builder --mac --x64 --win --x64"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.adbconsole.agent",
+    "productName": "ADB Console Agent",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "lib/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      { "from": "resources/adb", "to": "adb" }
+    ],
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": ["zip"],
+      "icon": "build/icon.png",
+      "identity": null,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "win": {
+      "target": ["nsis"],
+      "icon": "build/icon.png"
+    }
+  }
+}
