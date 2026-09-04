@@ -10,3 +10,7 @@ logs/
 # 系统 / 编辑器
 .DS_Store
 *.log
+
+# 访问令牌（本地公网部署用，勿提交）
+.adb_token
+.env
