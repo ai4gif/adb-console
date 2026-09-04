@@ -381,26 +381,43 @@
   }
   $("#scanBtn").addEventListener("click", scanDevices);
 
-  /* ---------- SSE 实时状态/日志（替代 WebSocket，零依赖） ---------- */
-  let _es=null;
-  function connectWS(){
-    if(_es){ try{ _es.close(); }catch(e){} _es=null; }
-    const es=new EventSource(API+"/api/stream"+(API_TOKEN?("?token="+encodeURIComponent(API_TOKEN)):""));
-    es.addEventListener("open", ()=>{ setDiag("diagSse","SSE：已连接"); track("sse:open"); const s=$("#liveLogState"); if(s) s.classList.remove("on"); });
-    es.addEventListener("status", e=>{
-      const m=JSON.parse(e.data);
-      state.connected=!!m.connected; state.logRecording=!!m.logRecording;
-      setDiag("diagConn", "连接："+(m.connected?"已连接":"未连接"));
-      track("sse:status", {connected:m.connected, logRecording:m.logRecording});
-      if(m.connected) paintConn("connected", m.ip); else if(!state.connected) paintConn("disconnected");
+  /* ---------- 轮询实时状态/日志（替代 SSE/WebSocket，兼容 Cloudflare 快速隧道） ---------- */
+  let _lastEventId = 0, _pollTimer = null;
+  function applyEvent(ev){
+    const d = ev.data || {};
+    if (ev.type === "status") {
+      state.connected = !!d.connected; state.logRecording = !!d.logRecording;
+      setDiag("diagConn", "连接：" + (d.connected ? "已连接" : "未连接"));
+      track("poll:status", {connected:d.connected, logRecording:d.logRecording});
+      if (d.connected) paintConn("connected", d.ip); else if (!state.connected) paintConn("disconnected");
       updateExecState();
-    });
-    let _logCount=0;
-    es.addEventListener("log", e=>{ appendLiveLog(e.data); _logCount++; if(_logCount%200===0){ track("sse:log", {count:_logCount}); } }); // 实时日志流
-    es.addEventListener("cmd", e=>{ try { const m = JSON.parse(e.data); if (m.runId && m.runId === state.currentRunId) appendCmdEcho(m.chunk); } catch(_){} }); // 指令实时回显
-    es.onerror=()=>{ setDiag("diagSse","SSE：断开(重连中)"); track("sse:error"); const s=$("#liveLogState"); if(s) s.classList.add("on"); }; // 浏览器会自动重连
+    } else if (ev.type === "log") {
+      appendLiveLog(d.line);
+    } else if (ev.type === "cmd") {
+      if (d.runId && d.runId === state.currentRunId) appendCmdEcho(d.chunk);
+    } else if (ev.type === "done") {
+      loadResults();
+    }
   }
-  connectWS();
+  function pollEvents(){
+    apiFetch(API + "/api/events?after=" + _lastEventId, { cache: "no-store" })
+      .then(r => r.json())
+      .then(j => {
+        setDiag("diagSse", "轮询：已连接");
+        if (j.reset) { loadResults(); }
+        (j.events || []).forEach(ev => { applyEvent(ev); _lastEventId = Math.max(_lastEventId, ev.id); });
+        // 状态快照同步（防止漏事件时 UI 卡旧值）
+        state.connected = !!j.state.connected; state.logRecording = !!j.state.logRecording;
+        if (j.state.connected) paintConn("connected", j.state.ip);
+        else if (!state.connected && $("#connStatus").textContent.indexOf("连接中") !== 0) paintConn("disconnected");
+        updateExecState();
+        schedulePoll();
+      })
+      .catch(e => { setDiag("diagSse", "轮询：断开(重试中)"); track("poll:error", {msg:String(e&&e.message||e)}); const s=$("#liveLogState"); if(s) s.classList.add("on"); schedulePoll(); });
+  }
+  function schedulePoll(){ if(_pollTimer) return; _pollTimer = setTimeout(() => { _pollTimer = null; pollEvents(); }, 400); }
+  setDiag("diagSse", "轮询：初始化");
+  pollEvents();
 
   /* ---------- 后端可达性自检（排除 file:// 打开 / 服务未启动） ---------- */
   function showBanner(msg){ const a=$("#alert"); a.style.display="block"; a.innerHTML=msg; }
@@ -628,7 +645,7 @@
   }
   function promptToken(){
     const m=$("#tokenModal"); m.classList.add("show"); const inp=$("#tokenInput"); inp.value=""; inp.focus();
-    const ok=()=>{ const v=inp.value.trim(); if(!v) return; API_TOKEN=v; try{ sessionStorage.setItem("adb_token", v); }catch(e){} checkBackend(); connectWS(); };
+    const ok=()=>{ const v=inp.value.trim(); if(!v) return; API_TOKEN=v; try{ sessionStorage.setItem("adb_token", v); }catch(e){} checkBackend(); pollEvents(); };
     $("#tokenOk").onclick = ok;
     inp.onkeydown = e => { if(e.key==="Enter") ok(); };
   }
