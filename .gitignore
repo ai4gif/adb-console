@@ -1,0 +1,12 @@
+# 依赖：server.js 零依赖，前端无构建步骤
+node_modules/
+
+# 运行时产物（截屏/指令输出落盘）
+artifacts/
+
+# 运行时日志
+logs/
+
+# 系统 / 编辑器
+.DS_Store
+*.log
