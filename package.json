@@ -1,0 +1,9 @@
+{
+  "name": "adb-console",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ADB 网页控制台：前端 + 真实 adb 后端（零依赖，Node 内置 http + SSE）",
+  "type": "commonjs",
+  "scripts": { "start": "node server.js" },
+  "dependencies": {}
+}
