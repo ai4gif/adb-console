@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ADB Console Agent</title>
+<style>
+  :root{
+    --bg:#0f1419; --panel:#1a2029; --panel2:#222b36; --txt:#e6edf3; --muted:#8b98a5;
+    --teal:#20c4b8; --red:#ff4d4f; --green:#3fb950; --line:#2c3540;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;font-size:13px}
+  .wrap{padding:20px}
+  h1{font-size:16px;margin:0 0 4px;display:flex;align-items:center;gap:8px}
+  h1 .dot{width:10px;height:10px;border-radius:50%;background:var(--muted)}
+  .sub{color:var(--muted);font-size:12px;margin:0 0 18px}
+  label{display:block;color:var(--muted);margin:14px 0 6px;font-size:12px}
+  input{width:100%;padding:9px 10px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;color:var(--txt);font-size:13px;outline:none}
+  input:focus{border-color:var(--teal)}
+  .status{margin-top:18px;padding:10px 12px;border-radius:8px;background:var(--panel);border:1px solid var(--line);display:flex;align-items:center;gap:8px}
+  .status .s-dot{width:9px;height:9px;border-radius:50%;background:var(--muted)}
+  .status.online .s-dot{background:var(--green)} .status.online{border-color:var(--green)}
+  .status.connecting .s-dot{background:var(--teal);animation:pulse 1s infinite} .status.connecting{border-color:var(--teal)}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  .row{display:flex;gap:10px;margin-top:18px}
+  button{flex:1;padding:10px;border:none;border-radius:8px;font-size:13px;cursor:pointer;font-weight:600}
+  .btn-connect{background:var(--teal);color:#06120f}
+  .btn-disconnect{background:var(--panel2);color:var(--red);border:1px solid var(--line)}
+  .tip{margin-top:16px;color:var(--muted);font-size:11px;line-height:1.6}
+  code{background:var(--panel2);padding:1px 5px;border-radius:4px;color:var(--teal)}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1><span class="dot" id="hdot"></span> ADB Console Agent</h1>
+    <p class="sub">桌面端：反向连接中继，本地执行 adb 操控同网设备</p>
+
+    <label>中继地址 (Relay URL)</label>
+    <input id="relay" placeholder="http://127.0.0.1:4100" />
+
+    <label>Agent 令牌 (Token)</label>
+    <input id="token" placeholder="dev-agent-token" />
+
+    <div class="status" id="statusBox">
+      <span class="s-dot"></span>
+      <span id="statusText">未连接</span>
+    </div>
+
+    <div class="row">
+      <button class="btn-connect" id="btnConnect">连接</button>
+      <button class="btn-disconnect" id="btnDisconnect">断开</button>
+    </div>
+
+    <p class="tip">
+      连接后，在任意电脑/手机打开中继网站，即可操控本机所连局域网设备。<br>
+      关闭此窗口不会停止 agent（仍在托盘运行）。退出请右键托盘 → 退出。
+    </p>
+  </div>
+  <script src="renderer.js"></script>
+</body>
+</html>
