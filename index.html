@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page-node-id="yfxy1VYTsLpEwGNQ8vIis9">
+<head data-page-node-id="PMP5BCrSqEhJCgLLjAwB9u">
+<meta charset="UTF-8" data-page-node-id="KdgJLlWwB4vYXeGGDYSNsV" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" data-page-node-id="UdcqHvGNhn5asZKPV8tgJA" />
+<title>ADB 指令控制台</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel-2:#1f232c; --border:#2a2f3a;
+    --text:#e6e8eb; --text-dim:#9aa3b2; --primary:#4c7dff;
+    --green:#22c55e; --red:#ff4d4f; --gray:#8c8c8c; --warn:#faad14;
+    --radius:10px;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:14px;line-height:1.5;}
+  .topbar{height:56px;background:var(--panel);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 24px;gap:12px;}
+  .topbar .logo{width:22px;height:22px;border-radius:6px;background:linear-gradient(135deg,var(--primary),#7aa2ff);}
+  .topbar h1{font-size:16px;font-weight:600;margin:0;}
+  .topbar .spacer{flex:1;}
+  .wrap{max-width:1080px;margin:24px auto;padding:0 24px;display:flex;flex-direction:column;gap:20px;}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:20px;}
+  .card > .title{font-size:15px;font-weight:600;margin:0 0 16px;text-align:left;}
+  .row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+  label.fld{display:block;font-size:13px;color:var(--text-dim);margin-bottom:6px;}
+  input[type=text],select{background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:9px 12px;font-size:14px;outline:none;min-width:260px;}
+  input[type=text]:focus,select:focus{border-color:var(--primary);}
+  input.invalid{border-color:var(--red);}
+  .hint{font-size:12px;color:var(--text-dim);margin-top:6px;}
+  .err{color:var(--red);} .ok{color:var(--green);}
+  button{background:var(--primary);color:#fff;border:none;border-radius:8px;padding:9px 18px;font-size:14px;cursor:pointer;transition:.15s;font-weight:500;}
+  button:hover{filter:brightness(1.08);}
+  button:disabled{background:#2d3340;color:#6b7280;cursor:not-allowed;filter:none;}
+  button:active:not(:disabled){transform:scale(.97);}
+  .cmd-echo{display:none;margin-top:14px;max-height:240px;overflow:auto;background:#0b0d11;border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12px;color:#b9c2d0;white-space:pre-wrap;word-break:break-all;line-height:1.45;}
+  .copy{text-align:center;color:var(--text-dim);font-size:12px;padding:18px 0 28px;}
+  button.ghost{background:transparent;border:1px solid var(--border);color:var(--text);}
+  .light{width:12px;height:12px;border-radius:50%;background:var(--gray);display:inline-block;}
+  .light.green{background:var(--green);box-shadow:0 0 8px rgba(34,197,94,.6);}
+  .light.red{background:var(--red);box-shadow:0 0 8px rgba(255,77,79,.6);}
+  .light.yellow{background:var(--warn);box-shadow:0 0 8px rgba(250,173,20,.6);}
+  .status-text{font-size:13px;color:var(--text-dim);}
+  select:disabled{opacity:.5;cursor:not-allowed;}
+  .cmd-fields{margin-top:14px;min-height:54px;}
+  .field-block{display:none;} .field-block.active{display:block;}
+  .drop{border:1.5px dashed var(--border);border-radius:10px;padding:22px;text-align:center;color:var(--text-dim);background:var(--panel-2);cursor:pointer;transition:.15s;}
+  .drop:hover,.drop.drag{border-color:var(--primary);color:var(--text);}
+  .drop .ic{font-size:22px;}
+  .mono{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:13px;}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:middle;}
+  th{color:var(--text-dim);font-weight:500;background:var(--panel-2);}
+  td .tag{display:inline-block;padding:2px 8px;border-radius:6px;font-size:12px;}
+  .tag.succ{background:rgba(34,197,94,.15);color:var(--green);}
+  .tag.fail{background:rgba(255,77,79,.15);color:var(--red);}
+  .tag.sent{background:rgba(76,125,255,.15);color:var(--primary);}
+  .pager{display:flex;align-items:center;gap:10px;margin-top:14px;justify-content:flex-end;color:var(--text-dim);font-size:13px;}
+  .thumb{width:46px;height:46px;object-fit:cover;border-radius:6px;border:1px solid var(--border);cursor:pointer;}
+  .linkbtn{background:none;border:none;color:var(--primary);padding:2px 6px;cursor:pointer;font-size:13px;}
+  .linkbtn.danger{color:var(--red);background:none;}
+  .linkbtn:hover{text-decoration:underline;}
+  .modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:50;}
+  .modal.show{display:flex;}
+  .live-log{display:none;margin:10px 0 0;max-height:200px;overflow:auto;background:#0b0d11;border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12px;color:#b9c2d0;white-space:pre-wrap;line-height:1.5;}
+  .diag{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:20px;}
+  .diag .title{font-size:15px;font-weight:600;margin:0 0 12px;display:flex;align-items:center;gap:10px;}
+  .diag .title .dot{width:8px;height:8px;border-radius:50%;background:var(--primary);}
+  .diag .bar{display:flex;gap:10px;align-items:center;margin-bottom:10px;flex-wrap:wrap;}
+  .diag .bar .tag2{font-size:12px;color:var(--text-dim);background:var(--panel-2);border:1px solid var(--border);padding:3px 10px;border-radius:999px;}
+  .diag pre.diaglog{margin:0;max-height:320px;overflow:auto;background:#0b0d11;border:1px solid var(--border);border-radius:8px;padding:12px;font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12px;color:#cdd5e0;white-space:pre-wrap;line-height:1.6;}
+  .diag .clearbtn{margin-left:auto;background:transparent;border:1px solid var(--border);color:var(--text-dim);padding:4px 12px;border-radius:8px;font-size:12px;cursor:pointer;}
+  .diag .clearbtn:hover{color:var(--text);border-color:var(--text-dim);}
+  .modal-box{background:var(--panel);border:1px solid var(--border);border-radius:12px;max-width:760px;width:90%;max-height:84vh;overflow:auto;padding:20px;}
+  .modal-box pre{white-space:pre-wrap;word-break:break-all;background:var(--panel-2);border:1px solid var(--border);border-radius:8px;padding:14px;max-height:60vh;overflow:auto;}
+  .modal-box img{max-width:100%;border-radius:8px;}
+  .modal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;}
+  .dev-note{font-size:12px;color:var(--text-dim);background:rgba(250,173,20,.08);border:1px solid rgba(250,173,20,.25);border-radius:8px;padding:8px 12px;margin-top:10px;}
+  .alert{display:none;background:rgba(255,77,79,.12);border:1px solid rgba(255,77,79,.4);color:var(--red);border-radius:8px;padding:12px 16px;font-size:13px;line-height:1.6;}
+  .live-log{display:none;margin-top:12px;background:#0b0d11;border:1px solid var(--border);border-radius:8px;padding:10px 12px;max-height:260px;overflow:auto;font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12px;color:#cdd3dd;white-space:pre-wrap;word-break:break-all;line-height:1.45;}
+  .toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%) translateY(20px);background:#1b2330;border:1px solid var(--border);color:var(--text);padding:10px 18px;border-radius:10px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:50;box-shadow:0 8px 24px rgba(0,0,0,.35);}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+  .toast.ok{border-color:rgba(82,196,26,.55);}
+  .toast.err{border-color:rgba(255,77,79,.55);color:var(--red);}
+  .logbar{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap;}
+  .logbar #logSearch{min-width:180px;flex:1;}
+  .logbar button{padding:5px 12px;font-size:12px;}
+  .log-state{font-size:12px;color:var(--text-dim);margin-left:auto;white-space:nowrap;}
+  .log-state.on{color:var(--green);}
+  .live-log-state{display:none;margin:8px 0 0;padding:8px 12px;border-radius:8px;font-size:12px;background:rgba(250,173,20,.1);border:1px solid rgba(250,173,20,.35);color:var(--warn);}
+  .live-log-state.on{display:block;}
+  .live-log mark{background:#facc15;color:#1a1a1a;border-radius:3px;padding:0 2px;}
+  button.danger{background:var(--red);}
+  button.danger:hover{filter:brightness(1.08);}
+  .dev-list{border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-top:8px;}
+  .dev-list .di{display:flex;align-items:center;gap:10px;padding:8px 12px;font-size:13px;cursor:pointer;border-bottom:1px solid var(--border);}
+  .dev-list .di:last-child{border-bottom:none;}
+  .dev-list .di:hover{background:var(--panel-2);}
+  .dev-list .di .st{font-size:12px;padding:2px 8px;border-radius:6px;white-space:nowrap;}
+  .dev-list .di .st.ok{background:rgba(34,197,94,.15);color:var(--green);}
+  .dev-list .di .st.bad{background:rgba(255,77,79,.15);color:var(--red);}
+  .dev-list .di .st.warn{background:rgba(250,173,20,.15);color:var(--warn);}
+  .dev-list .di .id{font-family:monospace;color:var(--text);}
+  .dev-list .di .meta{color:var(--text-dim);font-size:12px;}
+  #tokenModal input{width:100%;background:var(--panel-2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:9px 12px;font-size:14px;outline:none;}
+  #tokenModal input:focus{border-color:var(--primary);}
+</style>
+</head>
+<body data-page-node-id="Z61eUqOp0KFivzH6uaBKLV">
+  <div class="topbar" data-page-node-id="fz3L4dAiEta3Qnoa0fflFs">
+    <div class="logo" data-page-node-id="bWyuBL9O6DNxGaknhAgzVz"></div>
+    <h1 data-page-node-id="Yajfssmg9BTulGqBXRsyUt">ADB 指令控制台</h1>
+    <div class="spacer" data-page-node-id="pwxIGf1pKmQADwMU1Ww7xx"></div>
+  </div>
+
+  <div class="wrap" data-page-node-id="7Yw9Oh0CIVotWo9dsnNPu5">
+    <div id="alert" class="alert" data-page-node-id="alertBox"></div>
+    <!-- Step 1 -->
+    <div class="card" data-page-node-id="iyi6M43FY5fQLpTLNhyE5n">
+      <div class="title" data-page-node-id="PyP75coMkj0VZHEiwNi2D6">IP地址</div>
+      <div class="row" style="align-items:flex-end;" data-page-node-id="6BuYgPdDmjT6CY5S8ldpeB">
+        <div data-page-node-id="M1ryX274kcsiqadlgcuTIw">
+          <label class="fld" data-page-node-id="2OnGZTIIB0az2sta66962M">目标设备地址（IP:端口）</label>
+          <input id="ipInput" type="text" placeholder="例如 192.168.0.80:5555" autocomplete="off" data-page-node-id="UjQ6Eanh78PmOUbb2tWfnM" />
+        </div>
+        <button id="connectBtn" data-page-node-id="E95OiWqFApuAtPM7WKhOea">连接</button>
+        <div class="row" style="gap:8px;" data-page-node-id="xqgglxJlK0DkDAnVNYCwXh">
+          <span id="connLight" class="light" data-page-node-id="dtJkGAEwtj4wioqMReYaJF"></span>
+          <span id="connStatus" class="status-text" data-page-node-id="rspLpftDApzEFYsMhyH2wY">未连接</span>
+        </div>
+      </div>
+      <div id="ipMsg" class="hint" data-page-node-id="gG1qp3rimWqEAl0hmekrKS"></div>
+      <div class="row" style="margin-top:12px;gap:10px;">
+        <button id="scanBtn" class="ghost" style="padding:5px 12px;font-size:12px;" data-page-node-id="scanBtn">刷新本机设备</button>
+        <span id="scanHint" class="hint" style="margin:0;" data-page-node-id="scanHint"></span>
+      </div>
+      <div id="devList" class="dev-list" style="display:none;" data-page-node-id="devList"></div>
+      <div class="dev-note" data-page-node-id="kGtaFLB0IFnb3qL2XDR2pB">已接入真实后端：点击「连接」会调用 <span class="mono" data-page-node-id="HejjYE7tnXdGmvAAc9pNgX">adb connect &lt;ip:port&gt;</span>。需设备已开启 <span class="mono" data-page-node-id="FQ6SyscrzI0C4yzVVNyhED">adb tcpip 5555</span> 且与本机网络互通；连不上时返回 adb 真实失败原因。</div>
+    </div>
+
+    <!-- Step 2/3 -->
+    <div class="card" data-page-node-id="Um6sFctTW6lZYAI5HHqlbW">
+      <div class="title" data-page-node-id="bv8KdXix3l3tWdHLiPNwjf">指令</div>
+      <div class="row" style="align-items:flex-end;" data-page-node-id="JAVnnsA3oTDsTFpoRngtJI">
+        <div data-page-node-id="77JhRnrZqrp1YH9poMIfRG">
+          <label class="fld" data-page-node-id="QVfYRLHYhv5cBFioRlNcLj">选择 ADB 指令</label>
+          <select id="cmdSelect" disabled data-page-node-id="2wUJEM7nP3sfV4xSanrrO2">
+            <option value="" data-page-node-id="mDZOvt7lE8zbJusC2WBrOe">— 请选择 —</option>
+            <option value="log" data-page-node-id="LWfMD38uZSfx1hAek4B7F6">打log</option>
+            <option value="install" data-page-node-id="AaTHvOWIA8PD3VF97LUCYd">安装应用</option>
+            <option value="uninstall" data-page-node-id="My7hDmP4n5op29TQbwok2o">删除应用</option>
+            <option value="screencap" data-page-node-id="ymkE7Ys37MbDAxrNmfi5px">截屏</option>
+            <option value="custom" data-page-node-id="OWw65TrwxNPntcpM2Fmu3D">自定义</option>
+          </select>
+        </div>
+        <button id="execBtn" disabled data-page-node-id="ZS1BhOFHVlfGR5W6l80WsG">执行</button>
+        <button id="stopBtn" class="ghost" style="display:none;color:var(--warn);border-color:rgba(250,173,20,.5);" data-page-node-id="stopBtn">停止</button>
+      </div>
+      <div class="cmd-fields" data-page-node-id="37gqGiJvDaDt7i0JhvXBVE">
+        <div id="f-log" class="field-block" data-page-node-id="1VSgdzozpwRxCNzuzGAklE">
+          <div class="hint" data-page-node-id="y0HrC9d5ZVAki0OIDBKuIh">点击「执行」开始采集 logcat；采集中下方实时显示日志，再次点击停止并写入结果列表（<span class="mono" data-page-node-id="Lu2UM0EtXwkvJRFGsCPeTz">logN.txt</span>）。</div>
+          <div class="logbar">
+            <input id="logSearch" type="text" placeholder="过滤日志（实时高亮匹配）" class="mono" data-page-node-id="logSearch" />
+            <button id="logClear" class="ghost" data-page-node-id="logClear">清空</button>
+            <button id="logExport" class="ghost" data-page-node-id="logExport">导出</button>
+            <span id="logState" class="log-state" data-page-node-id="logState">待采集</span>
+          </div>
+          <div id="liveLogState" class="live-log-state" data-page-node-id="liveLogState">● 日志流已断开，正在重连…</div>
+          <pre id="liveLog" class="live-log" data-page-node-id="liveLog"></pre>
+        </div>
+        <div id="f-install" class="field-block" data-page-node-id="K2EIAIUEubLvD1qVFQ5lY3">
+          <label class="fld" data-page-node-id="QqJg1IBMFTF5gclTIyqKE3">选择 .apk 文件（支持点击或拖拽）</label>
+          <div id="drop" class="drop" data-page-node-id="BWwe66H0l2RGirzxWEfuvE">
+            <div class="ic" data-page-node-id="RZMtsaqjTDjcaGP15UoDTQ">⬆</div>
+            <div id="dropText" data-page-node-id="dbZWGuK8eezWdcUQrcvTc3">点击选择 / 拖拽 APK 到此处</div>
+            <input id="apkInput" type="file" accept=".apk" style="display:none" data-page-node-id="lVMLKosWoUjnXPjMdy1IsP" />
+          </div>
+        </div>
+        <div id="f-uninstall" class="field-block" data-page-node-id="sJgCn8ED4tGUMhv7fmANBY">
+          <label class="fld" data-page-node-id="bTp60nETpUMcfailfm7WIH">应用包名</label>
+          <input id="pkgInput" type="text" placeholder="例如 com.travelink.ehotel" class="mono" data-page-node-id="RWGeB5TRoUFP6khF3ynX5r" />
+        </div>
+        <div id="f-screencap" class="field-block" data-page-node-id="1ML2TVEW4Bw1CEyZ2KVBsd"><div class="hint" data-page-node-id="GerAB7Rmcv2GROrkH04mkp">点击「执行」对当前设备截屏，成功后将图片写入结果列表。</div></div>
+        <div id="f-custom" class="field-block" data-page-node-id="602NXH213pihgH54vQXsH0">
+          <label class="fld" data-page-node-id="JNhHGZoMKhsl3KAvb6BAyJ">自定义 ADB 命令</label>
+          <input id="customInput" type="text" placeholder="例如 getprop ro.product.model（shell 命令自动补前缀）" class="mono" style="min-width:420px;" data-page-node-id="5jBWq0lKxcbzD3G2uusDJ7" />
+          <div class="hint" data-page-node-id="customTip">提示：首词不是 adb 命令（如 getprop / pm / am / dumpsys）时，后端会自动补 <span class="mono">shell</span> 前缀执行；含 <span class="mono">rm / reboot</span> 等危险词的命令会被拦截。</div>
+          <div class="hint err" id="customWarn" style="display:none;" data-page-node-id="q0XGLzc7nGIlrRrrLE5JAt">⚠ 自定义指令含危险操作（如 shell rm / reboot），已被安全策略禁止。</div>
+        </div>
+      </div>
+      <pre id="cmdEcho" class="cmd-echo" data-page-node-id="cmdEcho"></pre>
+    </div>
+
+    <!-- Step 4 -->
+    <div class="card" data-page-node-id="WSYPrvCNKF6p2EVIBeA9RQ">
+      <div class="title" data-page-node-id="QFfKB6QsjJnTSK7zsDgCBd">列表</div>
+      <table data-page-node-id="65yxRVXhOJRpHmkGvSCG00">
+        <thead data-page-node-id="eUDH3u1c0YJCMSoMnIrXkF"><tr data-page-node-id="PDrKJIUAN8pag38DPHdYjs"><th data-page-node-id="2gEMrMB85S3FBVblyClwDv">执行时间</th><th data-page-node-id="Tjbd0hVcvH5JMo4HSCtvFO">指令名称</th><th data-page-node-id="M7ek44CUXzbZDYHiARbEBr">发送结果</th><th data-page-node-id="Ml2ohrRkGWMCjcCyrMTyaw">反馈结果</th><th data-page-node-id="ezuoFO81oQZbdD7AiIivnx">输出内容</th><th data-page-node-id="HkZjo0jGrossMk7Wbffzj4">操作</th></tr></thead>
+        <tbody id="resultBody" data-page-node-id="XGS4ejdkcCpGcP0OePsp1K"><tr data-page-node-id="oCOXzGa7lgTBhEtHEqG8cD"><td colspan="6" style="text-align:center;color:var(--text-dim);" data-page-node-id="6W0C0f6IahhgpUVJRLPTPf">暂无执行记录</td></tr></tbody>
+      </table>
+      <div class="pager" data-page-node-id="9M096LD9pzzGpmEbuJygNu">
+        <button id="prevPage" class="ghost" style="padding:5px 12px;" data-page-node-id="zJacUp0cVwNAWtxwvvHiwB">上一页</button>
+        <span id="pageInfo" data-page-node-id="FClb2Xlz8339PBXu6V4CLV">第 1 / 1 页</span>
+        <button id="nextPage" class="ghost" style="padding:5px 12px;" data-page-node-id="u4pPrhMR9iwjhNY2zQBHTs">下一页</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="copy">©️ 2026 LuCiEn</div>
+
+  <div id="modal" class="modal" data-page-node-id="YXIi5CKgQSn6HFxDdlO4Gv">
+    <div class="modal-box" data-page-node-id="WTkHYTDIAEhtktk3GO4IM3">
+      <div class="modal-head" data-page-node-id="1R16BbOOhljfW1z89v1iBO"><h3 id="modalTitle" style="margin:0;font-size:15px;" data-page-node-id="Sbp7M0EVzMEbtJvWVI5WPi">预览</h3><button class="ghost" onclick="closeModal()" style="padding:4px 12px;" data-page-node-id="uADLHTF0qi7DghMrdEOLtX">关闭</button></div>
+      <div id="modalContent" data-page-node-id="2l9WCZGu5nhj3n8B9x53Ai"></div>
+    </div>
+  </div>
+
+  <div id="confirmModal" class="modal" data-page-node-id="confirmModal">
+    <div class="modal-box" style="max-width:460px;" data-page-node-id="cb1">
+      <div class="modal-head" data-page-node-id="cb2"><h3 style="margin:0;font-size:15px;" data-page-node-id="cb3">⚠ 危险操作确认</h3></div>
+      <p id="confirmMsg" style="white-space:pre-wrap;color:var(--text);font-size:13px;line-height:1.7;" data-page-node-id="cb4"></p>
+      <div style="display:flex;gap:10px;justify-content:flex-end;" data-page-node-id="cb5">
+        <button id="confirmCancel" class="ghost" data-page-node-id="cb6">取消</button>
+        <button id="confirmOk" class="danger" data-page-node-id="cb7">确认执行</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="tokenModal" class="modal" data-page-node-id="tokenModal">
+    <div class="modal-box" style="max-width:420px;" data-page-node-id="tk1">
+      <div class="modal-head" data-page-node-id="tk2"><h3 style="margin:0;font-size:15px;" data-page-node-id="tk3">🔒 需要访问令牌</h3></div>
+      <p class="hint" style="margin:0 0 12px;" data-page-node-id="tk4">后端已启用访问令牌。请输入启动后端时设置的环境变量 <span class="mono">ADB_CONSOLE_TOKEN</span>：</p>
+      <input id="tokenInput" type="password" placeholder="访问令牌" data-page-node-id="tk5" />
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px;" data-page-node-id="tk6">
+        <button id="tokenOk" class="ghost" data-page-node-id="tk7">确定</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function(){
+  "use strict";
+  const $ = s => document.querySelector(s);
+  // 后端基地址：若本页就托管在 127.0.0.1:3000 则走相对路径；否则（预览面板/双击 html 等异源场景）显式指向后端
+  const API = (location.hostname === '127.0.0.1' && location.port === '3000') ? '' : 'http://127.0.0.1:3000';
+  let API_TOKEN = (sessionStorage.getItem('adb_token') || ''); // 后端启用 ADB_CONSOLE_TOKEN 时由用户输入
+  function apiFetch(url, opts) {
+    opts = opts || {};
+    if (API_TOKEN) { opts.headers = Object.assign({}, opts.headers, { 'Authorization': 'Bearer ' + API_TOKEN }); }
+    return fetch(url, opts);
+  }
+  const state = { connected:false, logRecording:false, selectedCmd:"", apkFile:null, page:1, pageSize:10, cmdRunning:false, currentRunId:null };
+  const DANGER = /(shell\s+rm\b|shell\s+reboot\b|shell\s+pm\s+clear\b|\brm\s+-rf\b|reboot\b|root\b|wipe\b|format\b|fastboot\b|mkfs\b|dd\s|shell\s+input\b)/i;
+
+  /* ---------- 操作日志 / 诊断埋点 ---------- */
+  const diagLines = [];
+  const diagEl = $("#diagLog");
+  if (diagEl) diagEl.textContent = "等待操作…";
+  function track(action, detail) {
+    let ds = detail;
+    if (typeof ds === "object" && ds !== null) ds = JSON.stringify(ds);
+    if (ds === undefined || ds === null) ds = "";
+    ds = String(ds);
+    const t = new Date().toISOString().slice(11, 23);
+    const line = "[" + t + "] " + action + (ds ? ("  ·  " + ds) : "");
+    diagLines.push(line);
+    if (diagLines.length > 800) diagLines.shift();
+    if (diagEl) { diagEl.textContent = diagLines.join("\n"); diagEl.scrollTop = diagEl.scrollHeight; }
+    try {
+      const payload = JSON.stringify({ action, detail: ds, ua: navigator.userAgent });
+      apiFetch(API + "/api/event", { method: "POST", headers: { "Content-Type": "application/json" }, body: payload, keepalive: true }).catch(() => {});
+    } catch (e) {}
+  }
+  function setDiag(id, txt) { const el = $("#" + id); if (el) el.textContent = txt; }
+  window.clearDiag = () => { diagLines.length = 0; if (diagEl) diagEl.textContent = "已清空"; };
+  let _toastTimer = null;
+  function toast(msg, kind) {
+    let t = $("#toast");
+    if (!t) { t = document.createElement("div"); t.id = "toast"; t.className = "toast"; document.body.appendChild(t); }
+    t.textContent = msg;
+    t.className = "toast show" + (kind ? " " + kind : "");
+    clearTimeout(_toastTimer);
+    _toastTimer = setTimeout(() => { t.className = "toast"; }, 2600);
+  }
+  setDiag("diagUa", (navigator.userAgent || "").slice(0, 64));
+  track("page:load", { ua: navigator.userAgent });
+
+  /* ---------- Step 1: IP 校验 ---------- */
+  function validateIP(v){
+    if(!v) return {ok:false,msg:"请输入 IP 地址"};
+    if(/[^0-9.:]/.test(v)) return {ok:false,msg:"非法字符"};
+    if(v.length>21) return {ok:false,msg:"非法长度"};
+    const m=v.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3}):(\d{1,5})$/);
+    if(!m) return {ok:false,msg:"格式应为 IP:端口，如 192.168.0.80:5555"};
+    const oct=[m[1],m[2],m[3],m[4]].map(Number);
+    if(oct.some(o=>o>255)) return {ok:false,msg:"IP 每段需在 0–255"};
+    const port=Number(m[5]);
+    if(port<1||port>65535) return {ok:false,msg:"端口需在 1–65535"};
+    return {ok:true};
+  }
+  const ipInput=$("#ipInput"), ipMsg=$("#ipMsg");
+  ipInput.addEventListener("input",()=>{
+    let v=ipInput.value; const before=v;
+    v=v.replace(/：/g,":").replace(/．/g,".");
+    v=v.replace(/[^0-9.:]/g,"");
+    if(v.length>21) v=v.slice(0,21);
+    if(v!==before) ipInput.value=v;
+    const r=validateIP(v);
+    ipInput.classList.toggle("invalid", !!v && !r.ok && r.msg!=="请输入 IP 地址");
+    if(!v){ipMsg.textContent="";ipMsg.className="hint";}
+    else if(!r.ok){ipMsg.textContent="• "+r.msg;ipMsg.className="hint err";}
+    else {ipMsg.textContent="• 格式合法";ipMsg.className="hint ok";}
+  });
+
+  function paintConn(name, ip, reason){
+    const light = name==="connected"?"green":name==="failed"?"red":"";
+    $("#connLight").className="light "+light;
+    const txt = name==="connected"?("已连接 ("+ip+")"):name==="failed"?(reason||"连接失败"):"未连接";
+    $("#connStatus").textContent=txt;
+    $("#connectBtn").textContent = name==="connected" ? "断开" : "连接";
+    $("#connectBtn").disabled = false; // 连接/断开均通过此按钮操作
+    $("#cmdSelect").disabled = name!=="connected";
+    if(name!=="connected"){ $("#cmdSelect").value=""; showField(""); updateExecState(); }
+  }
+
+  $("#connectBtn").addEventListener("click", async ()=>{
+    if(state.connected){ // 已连接 → 切换为断开（无二次确认，与原来一致）
+      track("disconnect:click");
+      await apiFetch(API+"/api/disconnect",{method:"POST"}).catch(()=>{});
+      paintConn("disconnected");
+      return;
+    }
+    const v=validateIP(ipInput.value);
+    if(!v.ok){ ipMsg.textContent="• "+v.msg; ipMsg.className="hint err"; ipInput.classList.add("invalid"); track("connect:invalid", {ip:ipInput.value, msg:v.msg}); return; }
+    track("connect:click", {ip:ipInput.value});
+    // 进入「连接中」状态：黄灯 + 按钮禁用，明确告知正在处理
+    $("#connStatus").textContent="连接中…"; $("#connLight").className="light yellow";
+    $("#connectBtn").disabled=true; $("#connectBtn").textContent="连接中…";
+    track("connect:start", {ip:ipInput.value});
+    const ctrl=new AbortController();
+    const to=setTimeout(()=>ctrl.abort(), 8000);
+    try{
+      const r=await apiFetch(API+"/api/connect",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ip:ipInput.value}),signal:ctrl.signal}).then(x=>x.json());
+      if(r.ok){ state.connected=true; track("connect:ok", {ip:ipInput.value}); paintConn("connected", ipInput.value); }
+      else { state.connected=false; track("connect:fail", {ip:ipInput.value, reason:r.reason}); paintConn("failed", ipInput.value, r.reason); if(r.hint){ ipMsg.textContent="• "+r.hint; ipMsg.className="hint err"; } }
+    }catch(e){
+      const msg = (e && e.name==="AbortError") ? "连接超时（8 秒未响应）：请确认设备已开机、已执行 adb tcpip 5555、且本机与该设备网络互通" : ("后端不可达："+(e&&e.message||e));
+      state.connected=false; track("connect:error", {msg});
+      paintConn("failed", ipInput.value, msg);
+    }finally{
+      clearTimeout(to);
+    }
+  });
+
+  /* ---------- 本机设备发现（adb devices -l） ---------- */
+  async function scanDevices(){
+    track("devices:scan");
+    const el=$("#devList"), hint=$("#scanHint");
+    hint.textContent="探测中…";
+    try {
+      const r=await apiFetch(API+"/api/devices").then(x=>x.json());
+      hint.textContent="";
+      if(!r.devices || !r.devices.length){
+        el.style.display="block";
+        el.innerHTML='<div class="di"><span class="meta">未发现已识别设备（先在设备上执行 adb tcpip 5555 并连接）</span></div>';
+        return;
+      }
+      el.style.display="block";
+      el.innerHTML = r.devices.map(d=>{
+        const cls = d.state==="device"?"ok":(d.state==="offline"?"bad":"warn");
+        const label = d.state==="device"?"在线":(d.state==="offline"?"离线":"未授权");
+        return `<div class="di" data-id="${esc(d.id)}"><span class="st ${cls}">${label}</span><span class="id">${esc(d.id)}</span><span class="meta">${esc(d.extra)}</span></div>`;
+      }).join("");
+      el.querySelectorAll('.di[data-id]').forEach(di=>{
+        di.addEventListener("click", ()=>{ ipInput.value=di.getAttribute("data-id"); ipInput.dispatchEvent(new Event("input",{bubbles:true})); toast("已填入设备地址："+di.getAttribute("data-id"),"ok"); });
+      });
+    } catch(e){ hint.textContent="探测失败："+(e&&e.message||e); }
+  }
+  $("#scanBtn").addEventListener("click", scanDevices);
+
+  /* ---------- SSE 实时状态/日志（替代 WebSocket，零依赖） ---------- */
+  let _es=null;
+  function connectWS(){
+    if(_es){ try{ _es.close(); }catch(e){} _es=null; }
+    const es=new EventSource(API+"/api/stream"+(API_TOKEN?("?token="+encodeURIComponent(API_TOKEN)):""));
+    es.addEventListener("open", ()=>{ setDiag("diagSse","SSE：已连接"); track("sse:open"); const s=$("#liveLogState"); if(s) s.classList.remove("on"); });
+    es.addEventListener("status", e=>{
+      const m=JSON.parse(e.data);
+      state.connected=!!m.connected; state.logRecording=!!m.logRecording;
+      setDiag("diagConn", "连接："+(m.connected?"已连接":"未连接"));
+      track("sse:status", {connected:m.connected, logRecording:m.logRecording});
+      if(m.connected) paintConn("connected", m.ip); else if(!state.connected) paintConn("disconnected");
+      updateExecState();
+    });
+    let _logCount=0;
+    es.addEventListener("log", e=>{ appendLiveLog(e.data); _logCount++; if(_logCount%200===0){ track("sse:log", {count:_logCount}); } }); // 实时日志流
+    es.addEventListener("cmd", e=>{ try { const m = JSON.parse(e.data); if (m.runId && m.runId === state.currentRunId) appendCmdEcho(m.chunk); } catch(_){} }); // 指令实时回显
+    es.onerror=()=>{ setDiag("diagSse","SSE：断开(重连中)"); track("sse:error"); const s=$("#liveLogState"); if(s) s.classList.add("on"); }; // 浏览器会自动重连
+  }
+  connectWS();
+
+  /* ---------- 后端可达性自检（排除 file:// 打开 / 服务未启动） ---------- */
+  function showBanner(msg){ const a=$("#alert"); a.style.display="block"; a.innerHTML=msg; }
+  function checkBackend(){
+    apiFetch(API+"/api/status",{cache:"no-store"}).then(r=>{ if(r.status===401) throw new Error("unauthorized"); if(!r.ok) throw new Error("bad status"); return r.json(); })
+      .then(j=>{ if(j.connected) paintConn("connected", j.ip); $("#tokenModal").classList.remove("show"); })
+      .catch(e=>{ if(e && e.message==="unauthorized"){ promptToken(); return; } showBanner("⚠ <b>无法连接后端服务</b>。请确认：① 已通过 <span class='mono'>http://127.0.0.1:3000</span> 打开本页（不要直接双击 html 文件，file:// 方式前端无法调用后端）；② 后端已运行（<span class='mono'>node server.js</span>，默认端口 3000）。"); });
+  }
+  checkBackend();
+
+  /* ---------- Step 2/3 ---------- */
+  function showField(type){ ["log","install","uninstall","screencap","custom"].forEach(t=>$("#f-"+t).classList.toggle("active", t===type)); }
+  $("#cmdSelect").addEventListener("change", e=>{ state.selectedCmd=e.target.value; showField(state.selectedCmd); updateExecState(); if(state.selectedCmd==="custom") checkCustom(); });
+  function updateExecState(){
+    const ok = state.connected && !!state.selectedCmd;
+    $("#execBtn").disabled = !ok;
+    if(state.selectedCmd==="log"){ $("#execBtn").textContent = state.logRecording?"停止并保存":"执行"; }
+    else { $("#execBtn").textContent="执行"; }
+  }
+  const drop=$("#drop"), apkInput=$("#apkInput");
+  drop.addEventListener("click",()=>apkInput.click());
+  apkInput.addEventListener("change",e=>{ if(e.target.files[0]) setApk(e.target.files[0]); });
+  ["dragover","dragenter"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("drag");}));
+  ["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("drag");}));
+  drop.addEventListener("drop",e=>{ const f=e.dataTransfer.files[0]; if(f) setApk(f); });
+  function setApk(f){
+    if(!f.name.toLowerCase().endsWith(".apk")){ $("#dropText").textContent="✗ 仅支持 .apk 文件"; $("#dropText").className="err"; return; }
+    state.apkFile=f; $("#dropText").textContent="✓ 已选择："+f.name; $("#dropText").className="ok";
+  }
+  $("#customInput").addEventListener("input", checkCustom);
+  function checkCustom(){ const v=$("#customInput").value.trim(); $("#customWarn").style.display = v && DANGER.test(v) ? "block":"none"; }
+
+  /* ---------- 执行 ---------- */
+  $("#execBtn").addEventListener("click", ()=>{
+    if(!state.connected || !state.selectedCmd) return;
+    const type=state.selectedCmd;
+    if(type==="log"){ runLog(); return; }
+    if(type==="screencap"){ runJSON("screencap",{},"截屏已保存到结果列表"); return; }
+    // install / uninstall / custom → 实时回显流式执行
+    const runId="cmd-"+Date.now();
+    if(type==="install"){
+      if(!state.apkFile){ alert("请先选择 .apk 文件"); return; }
+      runStream("install", {}, runId, "安装完成");
+    }
+    else if(type==="uninstall"){
+      const pkg=$("#pkgInput").value.trim(); if(!pkg){ alert("请填写应用包名"); return; }
+      confirmDanger("将卸载应用并清除其全部数据：\n\n  "+pkg+"\n\n确认执行？", ()=> runStream("uninstall",{pkg},runId,"已卸载："+pkg));
+    }
+    else if(type==="custom"){
+      const cmd=$("#customInput").value.trim(); if(!cmd){ alert("请填写自定义 ADB 命令"); return; }
+      if(DANGER.test(cmd)){
+        confirmDanger("该命令包含危险操作，可能在设备上造成不可恢复的后果：\n\n  "+cmd+"\n\n确认仍要执行？", ()=> runStream("custom",{cmd},runId,"命令已执行"));
+      } else {
+        runStream("custom",{cmd},runId,"命令已执行");
+      }
+    }
+  });
+
+  async function runLog(){
+    track("exec:click", {type:"log", phase:"toggle"});
+    try {
+      const r=await apiFetch(API+"/api/command",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type:"log"})}).then(x=>x.json());
+      if(r.recording){
+        state.logRecording=true; updateExecState(); $("#connStatus").textContent="已连接 · 采集中…"; startLiveLog();
+        track("exec:log:start", {ok:true});
+      } else if(r.record){
+        state.logRecording=false; updateExecState(); $("#connStatus").textContent="已连接 ("+ipInput.value+")"; stopLiveLog(); loadResults();
+        const nm = r.record.output && r.record.output.name;
+        toast("已停止采集，日志已保存：" + (nm||"log.txt"), "ok");
+        track("exec:log:stop", {ok:true, name:nm});
+      } else {
+        track("exec:log:fail", {ok:r.ok, reason:r.reason});
+        alert(r.reason || "操作失败");
+      }
+    } catch(e){
+      track("exec:log:error", {msg:String(e && e.message || e)});
+      alert("请求失败：" + (e && e.message || e));
+    }
+  }
+  // 实时日志：常态走「增量追加」(最省，曾因逐行重排卡死主线程)；搜索态走「整体高亮重排」。
+  // 全部行存 _logStore 供搜索/清空/导出；_logTail 为待写入 DOM 的增量。
+  let _logStore = [], _logTail = [], _logFilter = "", _logRaf = null;
+  const LOG_MAX = 200000, DOM_MAX = 200000, FILTER_VIEW = 4000;
+  function startLiveLog(){
+    _logStore = []; _logTail = []; _logFilter = ""; const s=$("#logSearch"); if(s) s.value="";
+    const el=$("#liveLog"); if(el){ el.style.display="block"; el.textContent=""; }
+    const st=$("#logState"); if(st){ st.textContent="采集中…"; st.classList.add("on"); }
+  }
+  function stopLiveLog(){
+    _logStore.push("— 已停止采集，日志已写入结果列表 —");
+    _logTail.push("— 已停止采集，日志已写入结果列表 —");
+    const st=$("#logState"); if(st){ st.textContent="已停止"; st.classList.remove("on"); }
+    scheduleLive();
+  }
+  function appendLiveLog(line){
+    _logStore.push(line);
+    if(_logStore.length > LOG_MAX) _logStore.shift();
+    if(_logFilter.trim()){ scheduleLive(); }
+    else { _logTail.push(line); scheduleAppend(); }
+  }
+  function scheduleAppend(){ if(!_logRaf) _logRaf = (window.requestAnimationFrame || setTimeout)(flushAppend); }
+  function flushAppend(){
+    _logRaf = null; const el = $("#liveLog"); if(!el){ _logTail.length=0; return; }
+    el.style.display = "block";
+    if(_logTail.length){ el.textContent += _logTail.join("\n") + "\n"; _logTail.length=0; }
+    if(el.textContent.length > DOM_MAX) el.textContent = el.textContent.slice(-DOM_MAX/2);
+    el.scrollTop = el.scrollHeight;
+  }
+  function scheduleLive(){ if(!_logRaf) _logRaf = (window.requestAnimationFrame || setTimeout)(renderLive); }
+  function renderLive(){
+    _logRaf = null; const el = $("#liveLog"); if(!el) return;
+    el.style.display = "block";
+    const f = _logFilter.trim().toLowerCase();
+    if(!f){ // 无过滤：一次性以 store 重绘（之后回到增量追加）
+      el.textContent = _logStore.join("\n") + "\n"; el.scrollTop = el.scrollHeight; return;
+    }
+    const view = _logStore.slice(-FILTER_VIEW);
+    let out = "";
+    for(let i=0;i<view.length;i++){
+      const l = view[i], low = l.toLowerCase(); let idx = low.indexOf(f);
+      if(idx === -1){ out += esc(l) + "\n"; continue; }
+      const safe = esc(l); let p = 0, html = "";
+      while(idx !== -1){ html += safe.slice(p, idx) + "<mark>" + safe.slice(idx, idx + f.length) + "</mark>"; p = idx + f.length; idx = low.indexOf(f, p); }
+      html += safe.slice(p); out += html + "\n";
+    }
+    el.innerHTML = out; el.scrollTop = el.scrollHeight;
+  }
+  // 搜索 / 清空 / 导出
+  $("#logSearch").addEventListener("input", e=>{ _logFilter = e.target.value; scheduleLive(); });
+  $("#logClear").addEventListener("click", ()=>{ _logStore = []; _logTail = []; const el=$("#liveLog"); if(el) el.textContent=""; const st=$("#logState"); if(st){ st.textContent="待采集"; st.classList.remove("on"); } track("log:clear"); });
+  $("#logExport").addEventListener("click", ()=>{
+    if(!_logStore.length){ toast("暂无可导出的日志","err"); return; }
+    const blob = new Blob([_logStore.join("\n") + "\n"], { type: "text/plain;charset=utf-8" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+    a.download = "adb-live-log-" + new Date().toISOString().replace(/[:.]/g,"-").slice(0,19) + ".txt";
+    a.click(); URL.revokeObjectURL(a.href); track("log:export", {lines:_logStore.length});
+    toast("已导出 "+_logStore.length+" 行日志","ok");
+  });
+  // 指令实时回显窗口（install/uninstall/custom 流式）
+  function openCmdEcho(runId){
+    state.currentRunId = runId;
+    const el = $("#cmdEcho"); if(el){ el.style.display="block"; el.textContent=""; el.scrollTop=0; }
+  }
+  function appendCmdEcho(chunk){
+    const el = $("#cmdEcho"); if(!el) return;
+    el.textContent += chunk;
+    if(el.textContent.length > 200000) el.textContent = el.textContent.slice(-100000);
+    el.scrollTop = el.scrollHeight;
+  }
+  function updateCmdButtons(){ const b=$("#stopBtn"); if(b) b.style.display = state.cmdRunning ? "inline-block" : "none"; }
+  async function runStream(type, params, runId, okMsg){
+    openCmdEcho(runId);
+    state.cmdRunning = true; updateCmdButtons();
+    const headers = {};
+    if (API_TOKEN) headers["Authorization"] = "Bearer " + API_TOKEN;
+    headers["X-Run-Id"] = runId;
+    let url = API + "/api/command", init = { method: "POST", headers };
+    if (type === "install") { headers["Content-Type"] = "application/octet-stream"; init.body = state.apkFile; }
+    else { headers["Content-Type"] = "application/json"; init.body = JSON.stringify({ type, params }); }
+    try {
+      const r = await fetch(url, init).then(x=>x.json());
+      if (!r.ok) { track("exec:fail", {reason:r.reason}); toast(r.reason||"执行失败","err"); }
+      else { track("exec:ok", {msg:okMsg}); if(okMsg) toast(okMsg,"ok"); }
+      loadResults();
+    } catch(e){ track("exec:error", {msg:String(e&&e.message||e)}); toast("请求失败："+(e&&e.message||e),"err"); }
+    finally { state.cmdRunning=false; updateCmdButtons(); }
+  }
+  // 停止当前 install/uninstall/custom（logcat 仍用「执行」按钮再点一次停止，是开关逻辑）
+  $("#stopBtn").addEventListener("click", async ()=>{
+    if(!state.cmdRunning) return;
+    track("exec:stop", {type: state.selectedCmd});
+    await apiFetch(API+"/api/command/stop",{method:"POST"}).catch(()=>{});
+    toast("已发送停止指令","ok");
+  });
+  async function runJSON(type, params, okMsg){
+    execFetch(apiFetch(API+"/api/command",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({type, params})}), okMsg);
+  }
+  async function execFetch(p, okMsg){
+    try {
+      const r=await p.then(x=>x.json());
+      if(!r.ok){ track("exec:fail", {reason:r.reason}); toast(r.reason||"执行失败","err"); return; }
+      track("exec:ok", {msg:okMsg}); if(okMsg) toast(okMsg,"ok"); loadResults();
+    } catch(e){ track("exec:error", {msg:String(e&&e.message||e)}); toast("请求失败："+(e&&e.message||e),"err"); }
+  }
+
+  /* ---------- 结果列表 ---------- */
+  async function loadResults(){
+    let r;
+    try { r = await apiFetch(API+"/api/results?page="+state.page+"&size="+state.pageSize).then(x=>x.json()); }
+    catch(e){ return; } // 401 等未授权时静默跳过（令牌弹窗会处理）
+    const rows=(r&&r.rows)||[], total=r.total||0, pages=Math.max(1,r.pages||1);
+    if(state.page>pages) state.page=pages;
+    const body=$("#resultBody");
+    if(total===0){ body.innerHTML='<tr><td colspan="6" style="text-align:center;color:var(--text-dim);">暂无执行记录</td></tr>'; }
+    else {
+      body.innerHTML=rows.map(x=>{
+        const fb=x.feedback.ok?'<span class="tag succ">SUCCESS</span>':'<span class="tag fail">'+esc(x.feedback.text)+'</span>';
+        return `<tr><td>${x.time}</td><td>${x.cmdName}</td><td><span class="tag sent">${x.send}</span></td><td>${fb}</td><td>${renderOutput(x)}</td><td><button class="linkbtn" onclick="retry(${x.id})">重试</button> <button class="linkbtn danger" onclick="delResult(${x.id})">删除</button></td></tr>`;
+      }).join("");
+    }
+    $("#pageInfo").textContent=`第 ${state.page} / ${pages} 页（共 ${total} 条）`;
+    $("#prevPage").disabled=state.page<=1; $("#nextPage").disabled=state.page>=pages;
+  }
+  function renderOutput(x){
+    const o=x.output; if(!o) return '<span style="color:var(--text-dim)">-</span>';
+    if(o.kind==="image") return `<img class="thumb" src="${API + o.url}" onclick="previewImg('${o.url}','${o.name}')" title="点击预览 · 右键下载"/>`;
+    if(o.kind==="apk") return `<span class="mono" style="cursor:pointer;text-decoration:underline;" onclick="download('${o.url}','${o.name}')" title="点击下载">${o.name}</span>`;
+    return `<span class="mono" style="cursor:pointer;text-decoration:underline;" onclick="previewText('${o.url}','${o.name}')" title="点击预览">${o.name}</span>`;
+  }
+  function esc(s){ return String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+  function tk(url){ const a = API + url; return API_TOKEN ? (a + (a.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(API_TOKEN)) : a; }
+  window.previewImg=(url,name)=>openModal(name,`<img src="${tk(url)}" alt="${name}"/>`);
+  window.download=(url,name)=>{ const a=document.createElement("a"); const u=tk(url); a.href=u+(u.includes('?')?'&':'?')+"download=1"; a.download=name; a.click(); };
+  window.previewText=async(url,name)=>{ const t=await apiFetch(API + url).then(x=>x.text()); openModal(name,`<pre>${esc(t)}</pre>`); };
+  window.closeModal=()=>$("#modal").classList.remove("show");
+  function openModal(title,html){ $("#modalTitle").textContent=title; $("#modalContent").innerHTML=html; $("#modal").classList.add("show"); }
+  $("#modal").addEventListener("click",e=>{ if(e.target===$("#modal")) closeModal(); });
+  function confirmDanger(msg, onOk, okLabel){
+    const m=$("#confirmModal"); $("#confirmMsg").textContent=msg;
+    $("#confirmOk").textContent = okLabel || "确认执行";
+    const done = ok => { $("#confirmOk").onclick=null; $("#confirmCancel").onclick=null; m.classList.remove("show"); if(ok) onOk(); };
+    $("#confirmOk").onclick = ()=>done(true);
+    $("#confirmCancel").onclick = ()=>done(false);
+    m.classList.add("show");
+  }
+  function promptToken(){
+    const m=$("#tokenModal"); m.classList.add("show"); const inp=$("#tokenInput"); inp.value=""; inp.focus();
+    const ok=()=>{ const v=inp.value.trim(); if(!v) return; API_TOKEN=v; try{ sessionStorage.setItem("adb_token", v); }catch(e){} checkBackend(); connectWS(); };
+    $("#tokenOk").onclick = ok;
+    inp.onkeydown = e => { if(e.key==="Enter") ok(); };
+  }
+  window.delResult=(id)=>{
+    confirmDanger("确认删除这条执行记录？\n同时会删除其产物文件（不可恢复）。", ()=>doDelete(id), "确认删除");
+  };
+  async function doDelete(id){
+    track("delete:click",{id});
+    let r;
+    try { r = await apiFetch(API+"/api/results/"+id,{method:"DELETE"}).then(x=>x.json()); } catch(e){ r={ok:false}; }
+    if(!r || !r.ok){ track("delete:fail",{id}); toast("删除失败","err"); return; }
+    track("delete:ok",{id}); toast("已删除记录","ok"); loadResults();
+  };
+  window.retry=async(id)=>{
+    if(!state.connected){ track("retry:blocked",{reason:"未连接",id}); alert("设备未连接，无法重试"); return; }
+    track("retry:click",{id});
+    const r=await apiFetch(API+"/api/command/"+id+"/retry",{method:"POST"}).then(x=>x.json());
+    if(!r.ok){ track("retry:fail",{id,reason:r.reason}); alert(r.reason||"重试失败"); return; }
+    track("retry:ok",{id}); loadResults();
+  };
+  $("#prevPage").addEventListener("click",()=>{ if(state.page>1){state.page--; loadResults();} });
+  $("#nextPage").addEventListener("click",()=>{ state.page++; loadResults(); });
+
+  loadResults();
+})();
+</script>
+</body>
+</html>
